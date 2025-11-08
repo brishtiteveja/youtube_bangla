@@ -11,12 +11,15 @@ from config import Config
 class GeminiChatBot:
     """Chatbot for Q&A with video transcripts using Gemini Flash"""
 
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, model_name: str = 'models/gemini-2.5-flash'):
         """
         Initialize Gemini chatbot
 
         Args:
             api_key: Google Gemini API key (defaults to Config.GEMINI_API_KEY)
+            model_name: Gemini model to use (default: 'models/gemini-2.5-flash')
+                       Options: 'gemini-2.5-flash', 'models/gemini-flash-latest', 'models/gemini-flash-lite-latest',
+                                'models/gemini-2.5-flash', 'models/gemini-2.5-flash-lite'
         """
         self.api_key = api_key or Config.GEMINI_API_KEY
 
@@ -26,8 +29,9 @@ class GeminiChatBot:
         # Configure Gemini
         genai.configure(api_key=self.api_key)
 
-        # Use Gemini Flash (fast and efficient)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Initialize model
+        self.model_name = model_name
+        self.model = genai.GenerativeModel(model_name)
 
         # Chat history
         self.chat = None

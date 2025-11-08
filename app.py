@@ -427,16 +427,34 @@ if st.session_state.channel_data:
                             st.divider()
                             st.subheader("💬 Chat with AI about this video")
 
-                            # Initialize chat session if needed
-                            if video['video_id'] not in st.session_state.chat_sessions:
+                            # Model selection
+                            col_model, col_spacer = st.columns([3, 1])
+                            with col_model:
+                                selected_model = st.selectbox(
+                                    "🤖 AI Model:",
+                                    options=[
+                                        'gemini-flash-latest',
+                                        'gemini-flash-lite-latest',
+                                        'gemini-2.5-flash',
+                                        'gemini-2.5-flash-lite'
+                                    ],
+                                    key=f"model_select_app_{video['video_id']}",
+                                    help="Choose the AI model for chat. Flash models are faster, Lite models are lightweight."
+                                )
+
+                            # Initialize chat session if needed or if model changed
+                            model_key = f"{video['video_id']}_{selected_model}"
+                            if model_key not in st.session_state.chat_sessions:
                                 try:
-                                    chatbot = GeminiChatBot()
+                                    chatbot = GeminiChatBot(model_name=selected_model)
                                     plain_text = transcript_processor.formatter.format_plain_text(
                                         result['json_data']['transcript']
                                     )
                                     chatbot.start_chat(plain_text, video['title'], video['video_id'])
-                                    st.session_state.chat_sessions[video['video_id']] = chatbot
-                                    st.session_state.chat_history[video['video_id']] = []
+                                    st.session_state.chat_sessions[model_key] = chatbot
+                                    if video['video_id'] not in st.session_state.chat_history:
+                                        st.session_state.chat_history[video['video_id']] = []
+                                    st.success(f"✅ Chat initialized with {selected_model}")
                                 except Exception as e:
                                     st.error(f"Could not initialize chat: {str(e)}")
 
@@ -445,34 +463,37 @@ if st.session_state.channel_data:
                             with col1:
                                 if st.button("📋 Summarize", key=f"sum_{video['video_id']}", use_container_width=True):
                                     with st.spinner("Generating summary..."):
-                                        chatbot = st.session_state.chat_sessions[video['video_id']]
-                                        response = chatbot.get_summary()
-                                        if response['success']:
-                                            st.session_state.chat_history[video['video_id']].append(
-                                                ("📋 Summarize this video", response['response'])
-                                            )
-                                            st.rerun()
+                                        chatbot = st.session_state.chat_sessions.get(model_key)
+                                        if chatbot:
+                                            response = chatbot.get_summary()
+                                            if response['success']:
+                                                st.session_state.chat_history[video['video_id']].append(
+                                                    ("📋 Summarize this video", response['response'])
+                                                )
+                                                st.rerun()
 
                             with col2:
                                 if st.button("🔑 Key Points", key=f"key_{video['video_id']}", use_container_width=True):
                                     with st.spinner("Extracting key points..."):
-                                        chatbot = st.session_state.chat_sessions[video['video_id']]
-                                        response = chatbot.get_key_points()
-                                        if response['success']:
-                                            st.session_state.chat_history[video['video_id']].append(
-                                                ("🔑 What are the key points?", response['response'])
-                                            )
-                                            st.rerun()
+                                        chatbot = st.session_state.chat_sessions.get(model_key)
+                                        if chatbot:
+                                            response = chatbot.get_key_points()
+                                            if response['success']:
+                                                st.session_state.chat_history[video['video_id']].append(
+                                                    ("🔑 What are the key points?", response['response'])
+                                                )
+                                                st.rerun()
 
                             with col3:
                                 if st.button("🗑️ Clear Chat", key=f"clear_{video['video_id']}", use_container_width=True):
                                     st.session_state.chat_history[video['video_id']] = []
-                                    chatbot = st.session_state.chat_sessions[video['video_id']]
-                                    chatbot.clear_chat()
-                                    plain_text = transcript_processor.formatter.format_plain_text(
-                                        result['json_data']['transcript']
-                                    )
-                                    chatbot.start_chat(plain_text, video['title'], video['video_id'])
+                                    chatbot = st.session_state.chat_sessions.get(model_key)
+                                    if chatbot:
+                                        chatbot.clear_chat()
+                                        plain_text = transcript_processor.formatter.format_plain_text(
+                                            result['json_data']['transcript']
+                                        )
+                                        chatbot.start_chat(plain_text, video['title'], video['video_id'])
                                     st.rerun()
 
                             # Display chat history
@@ -486,24 +507,33 @@ if st.session_state.channel_data:
                                         with st.chat_message("assistant"):
                                             st.write(answer)
 
-                            # Chat input
-                            user_question = st.chat_input(
-                                "Ask a question about the video...",
-                                key=f"chat_{video['video_id']}"
-                            )
+                            # Chat input (using text input + button since st.chat_input() can't be in expander)
+                            col_input, col_button = st.columns([4, 1])
+                            with col_input:
+                                user_question = st.text_input(
+                                    "Ask a question:",
+                                    key=f"chat_input_{video['video_id']}",
+                                    placeholder="Type your question here..."
+                                )
+                            with col_button:
+                                st.write("")  # Spacing
+                                ask_button = st.button("Ask", key=f"ask_{video['video_id']}", use_container_width=True)
 
-                            if user_question:
+                            if ask_button and user_question:
                                 with st.spinner("Thinking..."):
-                                    chatbot = st.session_state.chat_sessions[video['video_id']]
-                                    response = chatbot.ask(user_question)
+                                    chatbot = st.session_state.chat_sessions.get(model_key)
+                                    if chatbot:
+                                        response = chatbot.ask(user_question)
 
-                                    if response['success']:
-                                        st.session_state.chat_history[video['video_id']].append(
-                                            (user_question, response['response'])
-                                        )
-                                        st.rerun()
+                                        if response['success']:
+                                            st.session_state.chat_history[video['video_id']].append(
+                                                (user_question, response['response'])
+                                            )
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Error: {response['error']}")
                                     else:
-                                        st.error(f"Error: {response['error']}")
+                                        st.error("Chat session not initialized. Please try selecting the model again.")
 
                         else:
                             st.error(f"❌ {result['error']}")

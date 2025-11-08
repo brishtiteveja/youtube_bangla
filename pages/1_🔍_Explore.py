@@ -89,6 +89,16 @@ def load_category_videos(category: str, num_videos: int = 5):
     return videos[:num_videos]
 
 
+# Back to Home button
+col_back, col_spacer = st.columns([1, 5])
+with col_back:
+    if st.button("← Home", key="back_to_home", use_container_width=True):
+        # Clear any query params and navigate to main page
+        st.query_params.clear()
+        st.rerun()
+
+st.divider()
+
 # Title
 st.title("🔍 Explore Videos")
 st.markdown("Discover trending videos from top Bangladeshi channels across all categories")
@@ -161,7 +171,10 @@ for category, count in top_categories:
                 if st.button("▶️ Watch", key=f"watch_{video['video_id']}", use_container_width=True):
                     # Store video data in session state
                     st.session_state.selected_video = video
-                    st.switch_page("pages/2_📺_Video_Detail.py")
+                    # Use query params to navigate
+                    st.query_params["page"] = "video_detail"
+                    st.query_params["video_id"] = video['video_id']
+                    st.rerun()
     else:
         st.info(f"No videos available for {category}")
 
