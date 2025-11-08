@@ -16,6 +16,7 @@ from config import Config
 from youtube_api import YouTubeAPIClient, ChannelManager
 from transcript_api import TranscriptProcessor
 from channel_database import ChannelDatabase
+from gemini_chat import GeminiChatBot
 
 # Ensure directories exist
 Config.ensure_directories()
@@ -34,6 +35,12 @@ if 'videos' not in st.session_state:
     st.session_state.videos = []
 if 'transcripts' not in st.session_state:
     st.session_state.transcripts = {}
+if 'chat_sessions' not in st.session_state:
+    st.session_state.chat_sessions = {}  # {video_id: GeminiChatBot}
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = {}  # {video_id: [(question, answer)]}
+if 'preferred_categories' not in st.session_state:
+    st.session_state.preferred_categories = []
 
 # Initialize components
 @st.cache_resource
@@ -88,7 +95,7 @@ with st.sidebar:
     # Tab selection
     tab_method = st.radio(
         "Choose method:",
-        ["🇧🇩 Bangladeshi Channels", "🔍 Search Any Channel", "🔗 Channel URL"],
+        ["🇧🇩 Bangladeshi Channels", "📂 Browse by Category", "🔍 Search Any Channel", "🔗 Channel URL"],
         index=0
     )
 
@@ -135,6 +142,44 @@ with st.sidebar:
                 with col2:
                     if st.button("Load", key=f"load_{selected_name}"):
                         load_channel(selected_name)
+
+    elif tab_method == "📂 Browse by Category":
+        st.subheader("Browse by Category")
+
+        # Get category statistics
+        category_stats = db.get_category_stats()
+        all_categories = db.get_all_categories()
+
+        # Category selection
+        selected_category = st.selectbox(
+            "Select category:",
+            ["All Categories"] + all_categories,
+            key="category_select"
+        )
+
+        if selected_category and selected_category != "All Categories":
+            # Show channels in this category
+            category_channels = db.get_channels_by_category(selected_category, limit=50)
+            st.caption(f"{len(category_channels)} channels in {selected_category}")
+
+            if category_channels:
+                # Display category channels
+                for idx, ch in enumerate(category_channels):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**#{ch['rank']} - {ch['name']}**")
+                    with col2:
+                        if st.button("Load", key=f"cat_load_{ch['name']}", use_container_width=True):
+                            load_channel(ch['name'])
+                    if idx < len(category_channels) - 1:
+                        st.divider()
+        else:
+            # Show category overview with stats
+            st.markdown("### Category Statistics")
+            for category in all_categories:
+                count = category_stats.get(category, 0)
+                if count > 0:
+                    st.metric(category, f"{count} channels")
 
     elif tab_method == "🔍 Search Any Channel":
         search_query = st.text_input("Enter channel name:", placeholder="e.g., BBC News")
@@ -225,10 +270,13 @@ if st.session_state.channel_data:
         st.write("")
         if st.button("📹 Load Videos", type="primary", use_container_width=True):
             with st.spinner(f"Loading up to {max_videos} videos..."):
-                st.session_state.videos = api_client.get_channel_videos(
+                videos = api_client.get_channel_videos(
                     channel['channel_id'],
                     max_results=max_videos
                 )
+                # Enrich videos with statistics
+                with st.spinner("Fetching video statistics..."):
+                    st.session_state.videos = api_client.enrich_videos_with_stats(videos)
                 st.success(f"✅ Loaded {len(st.session_state.videos)} videos!")
                 st.rerun()
 
@@ -237,7 +285,7 @@ if st.session_state.channel_data:
         st.subheader(f"📹 Videos ({len(st.session_state.videos)})")
 
         # Controls
-        col1, col2 = st.columns([2, 2])
+        col1, col2, col3 = st.columns([2, 2, 2])
         with col1:
             selected_lang = st.selectbox(
                 "🌍 Preferred language:",
@@ -250,6 +298,12 @@ if st.session_state.channel_data:
             )
 
         with col2:
+            sort_by = st.selectbox(
+                "�� Sort by:",
+                ["Latest", "Most Viewed", "Most Liked", "Most Comments"]
+            )
+
+        with col3:
             search_filter = st.text_input("🔍 Filter videos:", "")
 
         # Filter videos
@@ -259,6 +313,16 @@ if st.session_state.channel_data:
                 v for v in st.session_state.videos
                 if search_filter.lower() in v['title'].lower()
             ]
+
+        # Sort videos
+        if sort_by == "Latest":
+            filtered_videos = sorted(filtered_videos, key=lambda x: x.get('published_at', ''), reverse=True)
+        elif sort_by == "Most Viewed":
+            filtered_videos = sorted(filtered_videos, key=lambda x: x.get('view_count', 0), reverse=True)
+        elif sort_by == "Most Liked":
+            filtered_videos = sorted(filtered_videos, key=lambda x: x.get('like_count', 0), reverse=True)
+        elif sort_by == "Most Comments":
+            filtered_videos = sorted(filtered_videos, key=lambda x: x.get('comment_count', 0), reverse=True)
 
         st.caption(f"Showing {len(filtered_videos)} of {len(st.session_state.videos)} videos")
 
@@ -271,6 +335,14 @@ if st.session_state.channel_data:
                     st.image(video['thumbnail'])
                     st.caption(f"📅 {video['published_at'][:10]}")
                     st.caption(f"🆔 {video['video_id']}")
+
+                    # Video statistics
+                    if 'view_count' in video:
+                        st.caption(f"👁️ {video['view_count']:,} views")
+                    if 'like_count' in video:
+                        st.caption(f"👍 {video['like_count']:,} likes")
+                    if 'comment_count' in video:
+                        st.caption(f"💬 {video['comment_count']:,} comments")
 
                 with col2:
                     st.write(video['description'])
@@ -350,6 +422,89 @@ if st.session_state.channel_data:
                                     key=f"txt_{video['video_id']}",
                                     use_container_width=True
                                 )
+
+                            # AI Chat Section
+                            st.divider()
+                            st.subheader("💬 Chat with AI about this video")
+
+                            # Initialize chat session if needed
+                            if video['video_id'] not in st.session_state.chat_sessions:
+                                try:
+                                    chatbot = GeminiChatBot()
+                                    plain_text = transcript_processor.formatter.format_plain_text(
+                                        result['json_data']['transcript']
+                                    )
+                                    chatbot.start_chat(plain_text, video['title'], video['video_id'])
+                                    st.session_state.chat_sessions[video['video_id']] = chatbot
+                                    st.session_state.chat_history[video['video_id']] = []
+                                except Exception as e:
+                                    st.error(f"Could not initialize chat: {str(e)}")
+
+                            # Quick action buttons
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                if st.button("📋 Summarize", key=f"sum_{video['video_id']}", use_container_width=True):
+                                    with st.spinner("Generating summary..."):
+                                        chatbot = st.session_state.chat_sessions[video['video_id']]
+                                        response = chatbot.get_summary()
+                                        if response['success']:
+                                            st.session_state.chat_history[video['video_id']].append(
+                                                ("📋 Summarize this video", response['response'])
+                                            )
+                                            st.rerun()
+
+                            with col2:
+                                if st.button("🔑 Key Points", key=f"key_{video['video_id']}", use_container_width=True):
+                                    with st.spinner("Extracting key points..."):
+                                        chatbot = st.session_state.chat_sessions[video['video_id']]
+                                        response = chatbot.get_key_points()
+                                        if response['success']:
+                                            st.session_state.chat_history[video['video_id']].append(
+                                                ("🔑 What are the key points?", response['response'])
+                                            )
+                                            st.rerun()
+
+                            with col3:
+                                if st.button("🗑️ Clear Chat", key=f"clear_{video['video_id']}", use_container_width=True):
+                                    st.session_state.chat_history[video['video_id']] = []
+                                    chatbot = st.session_state.chat_sessions[video['video_id']]
+                                    chatbot.clear_chat()
+                                    plain_text = transcript_processor.formatter.format_plain_text(
+                                        result['json_data']['transcript']
+                                    )
+                                    chatbot.start_chat(plain_text, video['title'], video['video_id'])
+                                    st.rerun()
+
+                            # Display chat history
+                            if video['video_id'] in st.session_state.chat_history:
+                                history = st.session_state.chat_history[video['video_id']]
+                                if history:
+                                    st.markdown("### Chat History")
+                                    for question, answer in history:
+                                        with st.chat_message("user"):
+                                            st.write(question)
+                                        with st.chat_message("assistant"):
+                                            st.write(answer)
+
+                            # Chat input
+                            user_question = st.chat_input(
+                                "Ask a question about the video...",
+                                key=f"chat_{video['video_id']}"
+                            )
+
+                            if user_question:
+                                with st.spinner("Thinking..."):
+                                    chatbot = st.session_state.chat_sessions[video['video_id']]
+                                    response = chatbot.ask(user_question)
+
+                                    if response['success']:
+                                        st.session_state.chat_history[video['video_id']].append(
+                                            (user_question, response['response'])
+                                        )
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Error: {response['error']}")
+
                         else:
                             st.error(f"❌ {result['error']}")
 
@@ -366,7 +521,8 @@ else:
         1. **Click** "⭐ Load Default: Pinaki Bhattacharya" in sidebar
         2. **Load videos** from the channel
         3. **Get transcripts** for any video
-        4. **Download** in JSON or TXT format
+        4. **💬 Chat with AI** about the video content
+        5. **Download** in JSON or TXT format
 
         ### ✨ Features
 
@@ -374,6 +530,7 @@ else:
         - 🔍 **Search any channel** worldwide
         - 🌍 **Multi-language** support (Bangla, English, Hindi)
         - 📝 **View & download** transcripts
+        - 💬 **AI Chat** - Ask questions, get summaries with Gemini
         - ⚡ **Fast & easy** to use
         """)
 

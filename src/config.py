@@ -14,7 +14,8 @@ class Config:
     """Application configuration"""
 
     # API Configuration
-    YOUTUBE_API_KEY = 'AIzaSyBHJCUTQ4WEJQrpmqAIDuQfgweMRJxd1cc'
+    YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
     # Default Settings
     DEFAULT_CHANNEL = "Pinaki Bhattacharya"

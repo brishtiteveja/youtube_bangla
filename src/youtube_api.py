@@ -178,6 +178,94 @@ class YouTubeAPIClient:
 
         return videos
 
+    def get_video_statistics(self, video_ids: List[str]) -> Dict[str, Dict]:
+        """
+        Get statistics for multiple videos (views, likes, comments)
+
+        Args:
+            video_ids: List of video IDs (max 50 per request)
+
+        Returns:
+            Dictionary mapping video_id to stats
+        """
+        if not video_ids:
+            return {}
+
+        stats = {}
+        # YouTube API allows max 50 IDs per request
+        batch_size = 50
+
+        for i in range(0, len(video_ids), batch_size):
+            batch = video_ids[i:i+batch_size]
+            video_ids_str = ','.join(batch)
+
+            url = f'{self.base_url}/videos'
+            params = {
+                'part': 'statistics',
+                'id': video_ids_str,
+                'key': self.api_key
+            }
+
+            try:
+                response = requests.get(url, params=params)
+                data = response.json()
+
+                if 'items' in data:
+                    for item in data['items']:
+                        video_id = item['id']
+                        stats_data = item['statistics']
+
+                        stats[video_id] = {
+                            'view_count': int(stats_data.get('viewCount', 0)),
+                            'like_count': int(stats_data.get('likeCount', 0)),
+                            'comment_count': int(stats_data.get('commentCount', 0))
+                        }
+
+                time.sleep(0.3)  # Rate limiting
+
+            except Exception as e:
+                print(f"Error fetching video statistics: {str(e)}")
+                continue
+
+        return stats
+
+    def enrich_videos_with_stats(self, videos: List[Dict]) -> List[Dict]:
+        """
+        Add statistics to video dictionaries
+
+        Args:
+            videos: List of video dictionaries
+
+        Returns:
+            List of enriched video dictionaries with stats
+        """
+        if not videos:
+            return videos
+
+        # Extract video IDs
+        video_ids = [v['video_id'] for v in videos]
+
+        # Get statistics
+        stats = self.get_video_statistics(video_ids)
+
+        # Enrich videos with stats
+        enriched_videos = []
+        for video in videos:
+            video_copy = video.copy()
+            video_id = video['video_id']
+
+            if video_id in stats:
+                video_copy.update(stats[video_id])
+            else:
+                # Default values if stats not available
+                video_copy['view_count'] = 0
+                video_copy['like_count'] = 0
+                video_copy['comment_count'] = 0
+
+            enriched_videos.append(video_copy)
+
+        return enriched_videos
+
 
 class ChannelManager:
     """High-level channel management operations"""

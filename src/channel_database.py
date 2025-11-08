@@ -1,6 +1,6 @@
 """
 Channel Database Module
-Handles Bangladeshi channels database operations
+Handles Bangladeshi channels database operations with categorization
 """
 
 import json
@@ -8,8 +8,27 @@ import os
 from typing import List, Dict, Optional
 
 
+# Channel categories for Bangladeshi channels
+CHANNEL_CATEGORIES = {
+    'News': ['TV', 'News', 'Bangla News', 'Independent', 'Jamuna', 'Ekattor', 'ATN', 'DBC', 'BanglaVision', 'Dhruba', 'Channel', 'Times'],
+    'Entertainment': ['Drama', 'Natok', 'Music', 'Movies', 'Films', 'Entertainment', 'Sangeeta', 'G Series', 'CD CHOICE'],
+    'Education': ['School', 'Academy', 'Tutorial', 'Learn', '10 Minute', 'Brain Fix', 'Study'],
+    'Kids': ['Kids', 'Children', 'Cartoon', 'Tonni', 'Maasranga Kids'],
+    'Food': ['Food', 'Recipe', 'Cooking', 'SS FOOD'],
+    'Gaming': ['Gaming', 'Gamer', 'Game', 'Potato Pseudo'],
+    'Art & Craft': ['Art', 'Craft', 'Drawing', 'Farjana', 'Mukta'],
+    'Lifestyle': ['Vlog', 'Lifestyle', 'Daily', 'Life'],
+    'Technology': ['Tech', 'Technology', 'Gadget', 'Review'],
+    'Comedy': ['Funny', 'Comedy', 'Fun', 'Laugh'],
+    'Music': ['Music', 'Song', 'Bangla', 'Coke Studio', 'Holy Tune', 'Eagle'],
+    'Religious': ['Islam', 'Religious', 'Quran', 'Holy'],
+    'Sports': ['Sports', 'Cricket', 'Football'],
+    'General': []  # Fallback category
+}
+
+
 class ChannelDatabase:
-    """Manages the database of Bangladeshi YouTube channels"""
+    """Manages the database of Bangladeshi YouTube channels with categorization"""
 
     def __init__(self, db_path: str = None):
         """
@@ -127,6 +146,69 @@ class ChannelDatabase:
 
         return [f"#{ch['rank']} - {ch['name']}" for ch in channels]
 
+    def _categorize_channel(self, channel_name: str) -> str:
+        """
+        Determine category for a channel based on name
+
+        Args:
+            channel_name: Name of the channel
+
+        Returns:
+            Category name
+        """
+        for category, keywords in CHANNEL_CATEGORIES.items():
+            if category == 'General':
+                continue
+            for keyword in keywords:
+                if keyword.lower() in channel_name.lower():
+                    return category
+        return 'General'
+
+    def get_channels_by_category(self, category: str, limit: int = None) -> List[Dict]:
+        """
+        Get channels in a specific category
+
+        Args:
+            category: Category name
+            limit: Maximum number of channels (None for all)
+
+        Returns:
+            List of channel dictionaries with category added
+        """
+        categorized = []
+        for channel in self.channels:
+            ch_category = self._categorize_channel(channel['name'])
+            if ch_category == category:
+                channel_copy = channel.copy()
+                channel_copy['category'] = ch_category
+                categorized.append(channel_copy)
+
+        if limit:
+            return categorized[:limit]
+        return categorized
+
+    def get_all_categories(self) -> List[str]:
+        """
+        Get list of all available categories
+
+        Returns:
+            List of category names
+        """
+        return [cat for cat in CHANNEL_CATEGORIES.keys() if cat != 'General']
+
+    def get_category_stats(self) -> Dict[str, int]:
+        """
+        Get count of channels per category
+
+        Returns:
+            Dictionary mapping category to count
+        """
+        stats = {cat: 0 for cat in CHANNEL_CATEGORIES.keys()}
+        for channel in self.channels:
+            category = self._categorize_channel(channel['name'])
+            stats[category] += 1
+        return stats
+
     def get_stats(self) -> Dict:
         """
         Get database statistics
@@ -137,5 +219,6 @@ class ChannelDatabase:
         return {
             'total_channels': len(self.channels),
             'top_channel': self.channels[0] if self.channels else None,
+            'categories': self.get_category_stats(),
             'database_path': self.db_path
         }
