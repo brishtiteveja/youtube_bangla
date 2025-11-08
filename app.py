@@ -510,18 +510,27 @@ if st.session_state.channel_data:
 
 else:
     # Welcome screen
-    st.info("👈 Use the sidebar to select a channel")
+    st.info("🔍 **New!** Check out the [Explore page](🔍_Explore) to discover videos by category")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("""
-        ### 🚀 Quick Start
+        ### 🔍 Explore Videos (Recommended!)
 
-        1. **Click** "⭐ Load Default: Pinaki Bhattacharya" in sidebar
-        2. **Load videos** from the channel
+        **Visit the Explore page to:**
+        - 📺 Watch embedded YouTube videos directly in the app
+        - 📂 Browse videos by category (News, Entertainment, Education, etc.)
+        - 📝 Get transcripts with one click
+        - 💬 Chat with AI about video content
+        - 🎯 Discover the latest from top channels
+
+        ### 🚀 Or Manage Channels Here
+
+        1. **Select** a channel from the sidebar
+        2. **Load videos** from that channel
         3. **Get transcripts** for any video
-        4. **💬 Chat with AI** about the video content
+        4. **Sort & filter** videos
         5. **Download** in JSON or TXT format
 
         ### ✨ Features
@@ -529,9 +538,8 @@ else:
         - 🇧🇩 **1000 Bangladeshi Channels** pre-loaded
         - 🔍 **Search any channel** worldwide
         - 🌍 **Multi-language** support (Bangla, English, Hindi)
-        - 📝 **View & download** transcripts
-        - 💬 **AI Chat** - Ask questions, get summaries with Gemini
-        - ⚡ **Fast & easy** to use
+        - 📊 **Video statistics** (views, likes, comments)
+        - 💬 **AI Chat** powered by Google Gemini
         """)
 
     with col2:
@@ -540,15 +548,20 @@ else:
 
         **1. Bangladeshi Channels**
         - Browse 1000+ top BD channels
-        - Pinaki Bhattacharya is default
-        - Filter and search easily
+        - Filter by category
+        - Search by name
 
-        **2. Search Any Channel**
+        **2. Browse by Category**
+        - News, Entertainment, Education, Kids
+        - Food, Gaming, Music, Sports, etc.
+        - See channel statistics per category
+
+        **3. Search Any Channel**
         - Search YouTube globally
         - Find any channel by name
         - See thumbnails and descriptions
 
-        **3. Channel URL**
+        **4. Channel URL**
         - Paste any YouTube channel URL
         - Supports @username format
         - Quick and direct access

@@ -55,7 +55,7 @@ Video Title: {video_title}
 Video ID: {video_id}
 
 TRANSCRIPT:
-{transcript_context}
+{transcript_text}
 
 Your role:
 - Answer questions about the video content based ONLY on the transcript provided
