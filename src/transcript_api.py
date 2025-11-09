@@ -27,25 +27,48 @@ class TranscriptFetcher:
         self.max_retries = Config.MAX_RETRY_ATTEMPTS
         self.api = None  # Will be initialized on each request for rotating proxies
 
-    def _create_api_instance(self):
-        """Create a new API instance with fresh proxy configuration"""
+    def _create_api_instance(self, use_proxy: bool = True):
+        """
+        Create a new API instance with fresh proxy configuration
+
+        Args:
+            use_proxy: Whether to use proxy (False for fallback to direct)
+
+        Returns:
+            Tuple of (YouTubeTranscriptApi instance, proxy_info string)
+        """
         # Get proxy configuration
-        proxy_dict = Config.get_proxy_dict() if self.use_proxy else None
+        proxy_dict = Config.get_proxy_dict() if (self.use_proxy and use_proxy) else None
+        proxy_info = "direct"
 
         # Initialize API with or without proxies
         if proxy_dict:
+            # Extract proxy info for logging
+            if 'auto_rotate' in proxy_dict:
+                # Webshare auto-rotating residential proxy
+                proxy_info = "Webshare auto-rotating"
+            elif 'proxy_number' in proxy_dict:
+                proxy_info = f"residential-{proxy_dict['proxy_number']}"
+            elif 'info' in proxy_dict:
+                # API pool proxy with details
+                info = proxy_dict['info']
+                proxy_info = f"{info['host']} ({info['country']}, {info['city']})"
+            else:
+                proxy_info = "proxy"
+
             # Create GenericProxyConfig from our proxy dict
             proxy_config = GenericProxyConfig(
                 http_url=proxy_dict.get('http'),
                 https_url=proxy_dict.get('https')
             )
-            return YouTubeTranscriptApi(proxy_config=proxy_config)
+            return YouTubeTranscriptApi(proxy_config=proxy_config), proxy_info
         else:
-            return YouTubeTranscriptApi()
+            return YouTubeTranscriptApi(), proxy_info
 
     def get_transcript(self, video_id: str, languages: List[str] = None) -> Dict:
         """
         Get transcript for a video in specified languages with retry mechanism
+        Falls back to direct connection if proxy fails after all retries
 
         Args:
             video_id: YouTube video ID
@@ -58,12 +81,19 @@ class TranscriptFetcher:
             languages = ['bn', 'en', 'hi']
 
         last_error = None
+        proxy_failed = False
 
-        # Retry loop - try up to MAX_RETRY_ATTEMPTS times
+        # Retry loop - try up to MAX_RETRY_ATTEMPTS times with proxy
         for attempt in range(1, self.max_retries + 1):
             try:
                 # Create fresh API instance with new proxy (for rotating proxies)
-                api = self._create_api_instance()
+                api, proxy_info = self._create_api_instance(use_proxy=True)
+
+                # Log proxy usage on first attempt or retry
+                if attempt == 1:
+                    print(f"🔌 Using proxy: {proxy_info}")
+                elif proxy_info != "direct":
+                    print(f"🔌 Retry #{attempt}: {proxy_info}")
 
                 # Try each language in order
                 for lang in languages:
@@ -133,10 +163,74 @@ class TranscriptFetcher:
                     time.sleep(1)  # Brief pause between retries
                     continue
                 else:
-                    # Last attempt failed or not using proxies
+                    # Mark that proxy failed for fallback
+                    proxy_failed = True
                     break
 
-        # All attempts failed
+        # If proxy failed and we were using proxy, try direct connection as fallback
+        if proxy_failed and self.use_proxy:
+            print(f"⚠️  All proxy attempts failed. Trying direct connection...")
+            try:
+                api, proxy_info = self._create_api_instance(use_proxy=False)
+                print(f"🔌 Using: {proxy_info}")
+
+                # Try each language in order
+                for lang in languages:
+                    try:
+                        transcript_data = api.fetch(video_id, languages=[lang])
+                        transcript = [
+                            {
+                                'text': snippet.text,
+                                'start': snippet.start,
+                                'duration': snippet.duration
+                            }
+                            for snippet in transcript_data
+                        ]
+
+                        print(f"✅ Success with direct connection!")
+
+                        return {
+                            'success': True,
+                            'transcript': transcript,
+                            'language_code': lang,
+                            'is_generated': self._check_if_generated(video_id, lang),
+                            'attempts': self.max_retries + 1,
+                            'used_fallback': True
+                        }
+                    except NoTranscriptFound:
+                        continue
+
+                # If no preferred language found, get any available
+                transcript_data = api.fetch(video_id)
+                transcript = [
+                    {
+                        'text': snippet.text,
+                        'start': snippet.start,
+                        'duration': snippet.duration
+                    }
+                    for snippet in transcript_data
+                ]
+
+                print(f"✅ Success with direct connection!")
+
+                return {
+                    'success': True,
+                    'transcript': transcript,
+                    'language_code': 'unknown',
+                    'is_generated': True,
+                    'attempts': self.max_retries + 1,
+                    'used_fallback': True
+                }
+
+            except Exception as fallback_error:
+                print(f"❌ Direct connection also failed: {fallback_error}")
+                return {
+                    'success': False,
+                    'error': f'Failed after {self.max_retries} proxy attempts and direct connection. Last error: {last_error}',
+                    'attempts': self.max_retries + 1
+                }
+
+        # All attempts failed (no fallback or fallback not applicable)
         return {
             'success': False,
             'error': f'Failed after {self.max_retries} attempts. Last error: {last_error}',

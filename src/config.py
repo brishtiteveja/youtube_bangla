@@ -103,28 +103,18 @@ class Config:
         if not cls.USE_PROXY:
             return None
 
-        # Mode 1: Rotating residential proxy - manually rotate through numbered proxies
+        # Mode 1: Rotating residential proxy - Webshare auto-rotation
         if cls.PROXY_MODE == 'rotating' and cls.ROTATING_PROXY_HOST:
-            # For numbered residential proxies (residential-1, residential-2, etc.)
-            # Extract base username (without number suffix)
-            base_username = cls.ROTATING_PROXY_USERNAME
+            # Use the username as-is (e.g., npgyhuvj-residential-rotate)
+            # Webshare will automatically rotate IPs on each request
+            username = cls.ROTATING_PROXY_USERNAME
 
-            # If username already has a number, remove it to get base
-            if '-' in base_username:
-                parts = base_username.rsplit('-', 1)
-                if parts[-1].isdigit():
-                    base_username = '-'.join(parts[:-1])
-
-            # Round-robin through residential proxies
-            cls._residential_proxy_counter = (cls._residential_proxy_counter % cls._residential_proxy_count) + 1
-            numbered_username = f"{base_username}-{cls._residential_proxy_counter}"
-
-            proxy_url = f"http://{numbered_username}:{cls.ROTATING_PROXY_PASSWORD}@{cls.ROTATING_PROXY_HOST}:{cls.ROTATING_PROXY_PORT}"
+            proxy_url = f"http://{username}:{cls.ROTATING_PROXY_PASSWORD}@{cls.ROTATING_PROXY_HOST}:{cls.ROTATING_PROXY_PORT}"
             return {
                 'http': proxy_url,
                 'https': proxy_url,
                 'rotating': True,
-                'proxy_number': cls._residential_proxy_counter
+                'auto_rotate': True  # Flag to indicate Webshare handles rotation
             }
 
         # Mode 2: Use Webshare API for rotation (datacenter proxies)

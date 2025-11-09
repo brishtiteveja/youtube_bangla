@@ -37,7 +37,7 @@ class YouTubeAPIClient:
                 print(f"Warning: Could not initialize cache: {str(e)}")
                 self.cache = None
 
-    def _make_request(self, url: str, params: dict, max_retries: int = 25) -> Optional[dict]:
+    def _make_request(self, url: str, params: dict, max_retries: int = 10) -> Optional[dict]:
         """
         Make API request with optional proxy support and retry logic
 
@@ -53,11 +53,33 @@ class YouTubeAPIClient:
             try:
                 # Get proxy configuration if enabled
                 proxies = None
+                proxy_info = "direct"
                 if self.use_proxy:
-                    proxies = Config.get_proxy_dict()
-                    if proxies:
+                    proxy_dict = Config.get_proxy_dict()
+                    if proxy_dict:
+                        # Extract proxy info for logging
+                        if 'auto_rotate' in proxy_dict:
+                            # Webshare auto-rotating residential proxy
+                            proxy_info = "Webshare auto-rotating (new IP each request)"
+                        elif 'proxy_number' in proxy_dict:
+                            proxy_info = f"residential-{proxy_dict['proxy_number']}"
+                        elif 'info' in proxy_dict:
+                            # API pool proxy with details
+                            info = proxy_dict['info']
+                            proxy_info = f"{info['host']} ({info['country']}, {info['city']})"
+                        else:
+                            proxy_info = "api-pool"
+
                         # Remove the extra metadata keys that Config.get_proxy_dict() adds
-                        proxies = {k: v for k, v in proxies.items() if k in ['http', 'https']}
+                        proxies = {k: v for k, v in proxy_dict.items() if k in ['http', 'https']}
+
+                        # Log which proxy is being used on first attempt or retry
+                        if attempt == 0:
+                            print(f"🔌 Using proxy: {proxy_info}")
+                        elif 'auto_rotate' in proxy_dict:
+                            print(f"🔌 Retry #{attempt + 1}: {proxy_info}")
+                        else:
+                            print(f"🔌 Retry with proxy: {proxy_info}")
 
                 # Make request with timeout
                 response = requests.get(
@@ -69,6 +91,8 @@ class YouTubeAPIClient:
 
                 # Check if successful
                 if response.status_code == 200:
+                    if attempt > 0:
+                        print(f"✅ Success with proxy: {proxy_info}")
                     return response.json()
 
                 # Handle rate limiting
