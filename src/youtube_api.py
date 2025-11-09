@@ -37,7 +37,7 @@ class YouTubeAPIClient:
                 print(f"Warning: Could not initialize cache: {str(e)}")
                 self.cache = None
 
-    def _make_request(self, url: str, params: dict, max_retries: int = 3) -> Optional[dict]:
+    def _make_request(self, url: str, params: dict, max_retries: int = 25) -> Optional[dict]:
         """
         Make API request with optional proxy support and retry logic
 
@@ -76,16 +76,22 @@ class YouTubeAPIClient:
                     error_data = response.json()
                     if 'error' in error_data:
                         error_msg = error_data['error'].get('message', 'Unknown error')
-                        print(f"YouTube API Error 403: {error_msg}")
+                        print(f"⚠️  YouTube API Error 403: {error_msg}")
 
-                        # If quota exceeded, don't retry
+                        # If quota exceeded and we have proxies, try with different proxy
                         if 'quota' in error_msg.lower():
-                            print("API quota exceeded. Please wait or use a different API key.")
-                            return None
+                            if self.use_proxy and attempt < max_retries - 1:
+                                print(f"🔄 Quota exceeded, retrying with different proxy (attempt {attempt + 1}/{max_retries})...")
+                                time.sleep(min(2 ** attempt, 10))  # Exponential backoff capped at 10 seconds
+                                continue
+                            else:
+                                print("❌ API quota exceeded. Please wait or use a different API key.")
+                                return None
 
                     # Rate limit - wait and retry with different proxy
                     if attempt < max_retries - 1:
-                        time.sleep(2 ** attempt)  # Exponential backoff
+                        print(f"🔄 Rate limited, retrying with different proxy (attempt {attempt + 1}/{max_retries})...")
+                        time.sleep(min(2 ** attempt, 10))  # Exponential backoff capped at 10 seconds
                         continue
 
                 # Other errors

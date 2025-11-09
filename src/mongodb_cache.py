@@ -29,8 +29,8 @@ class MongoDBCache:
                 self.client.server_info()
                 self.db = self.client[Config.MONGODB_DATABASE]
 
-                # Create indexes for efficient queries
-                self._create_indexes()
+                # Create time-series collections and indexes
+                self._setup_collections()
 
                 print(f"✅ MongoDB cache connected to {Config.MONGODB_DATABASE}")
             except Exception as e:
@@ -39,28 +39,76 @@ class MongoDBCache:
                 self.client = None
                 self.db = None
 
-    def _create_indexes(self):
-        """Create indexes for collections"""
+    def _setup_collections(self):
+        """Setup time-series collections and indexes"""
         if not self.enabled:
             return
 
         try:
-            # Channels collection indexes
-            self.db.channels.create_index("channel_id", unique=True)
-            self.db.channels.create_index("channel_name")
-            self.db.channels.create_index("cached_at")
+            existing_collections = self.db.list_collection_names()
 
-            # Videos collection indexes
-            self.db.videos.create_index("video_id", unique=True)
-            self.db.videos.create_index("channel_id")
-            self.db.videos.create_index("cached_at")
+            # Create channels collection as time-series if it doesn't exist
+            if 'channels' not in existing_collections:
+                try:
+                    self.db.create_collection(
+                        'channels',
+                        timeseries={
+                            'timeField': 'timestamp',
+                            'metaField': 'metadata',
+                            'granularity': 'hours'
+                        }
+                    )
+                    print("📊 Created time-series collection: channels")
+                except Exception as e:
+                    # Collection might already exist or not support time-series
+                    print(f"Info: channels collection setup: {str(e)}")
 
-            # Transcripts collection indexes
-            self.db.transcripts.create_index("video_id", unique=True)
-            self.db.transcripts.create_index("cached_at")
+            # Create videos collection as time-series if it doesn't exist
+            if 'videos' not in existing_collections:
+                try:
+                    self.db.create_collection(
+                        'videos',
+                        timeseries={
+                            'timeField': 'timestamp',
+                            'metaField': 'metadata',
+                            'granularity': 'hours'
+                        }
+                    )
+                    print("📊 Created time-series collection: videos")
+                except Exception as e:
+                    print(f"Info: videos collection setup: {str(e)}")
+
+            # Create transcripts collection as time-series if it doesn't exist
+            if 'transcripts' not in existing_collections:
+                try:
+                    self.db.create_collection(
+                        'transcripts',
+                        timeseries={
+                            'timeField': 'timestamp',
+                            'metaField': 'metadata',
+                            'granularity': 'hours'
+                        }
+                    )
+                    print("📊 Created time-series collection: transcripts")
+                except Exception as e:
+                    print(f"Info: transcripts collection setup: {str(e)}")
+
+            # Create indexes for efficient queries (on metadata fields for time-series)
+            try:
+                # For time-series collections, we index the metaField
+                self.db.channels.create_index([("metadata.channel_id", 1)])
+                self.db.channels.create_index([("metadata.channel_name", 1)])
+
+                self.db.videos.create_index([("metadata.video_id", 1)])
+                self.db.videos.create_index([("metadata.channel_id", 1)])
+
+                self.db.transcripts.create_index([("metadata.video_id", 1)])
+
+            except Exception as e:
+                print(f"Info: Could not create all indexes: {str(e)}")
 
         except Exception as e:
-            print(f"Warning: Could not create indexes: {str(e)}")
+            print(f"Warning: Could not setup collections: {str(e)}")
 
     # ==================== CHANNEL CACHING ====================
 
@@ -81,17 +129,18 @@ class MongoDBCache:
         try:
             query = {}
             if channel_id:
-                query['channel_id'] = channel_id
+                query['metadata.channel_id'] = channel_id
             elif channel_name:
-                query['channel_name'] = channel_name
+                query['metadata.channel_name'] = channel_name
             else:
                 return None
 
             # Check cache validity (7 days)
             cache_cutoff = datetime.utcnow() - timedelta(days=7)
-            query['cached_at'] = {'$gte': cache_cutoff}
+            query['timestamp'] = {'$gte': cache_cutoff}
 
-            result = self.db.channels.find_one(query)
+            # Sort by timestamp descending to get most recent
+            result = self.db.channels.find_one(query, sort=[('timestamp', -1)])
 
             if result:
                 print(f"✅ Cache hit: Channel {channel_id or channel_name}")
@@ -123,18 +172,18 @@ class MongoDBCache:
             if not channel_id:
                 return False
 
+            # Time-series document structure
             doc = {
-                'channel_id': channel_id,
-                'channel_name': channel_name,
-                'data': channel_data,
-                'cached_at': datetime.utcnow()
+                'timestamp': datetime.utcnow(),  # Required timeField
+                'metadata': {  # Required metaField
+                    'channel_id': channel_id,
+                    'channel_name': channel_name
+                },
+                'data': channel_data
             }
 
-            self.db.channels.replace_one(
-                {'channel_id': channel_id},
-                doc,
-                upsert=True
-            )
+            # For time-series, we insert (MongoDB handles deduplication)
+            self.db.channels.insert_one(doc)
 
             print(f"💾 Cached channel: {channel_name or channel_id}")
             return True
@@ -164,11 +213,11 @@ class MongoDBCache:
             cache_cutoff = datetime.utcnow() - timedelta(days=1)
 
             query = {
-                'channel_id': channel_id,
-                'cached_at': {'$gte': cache_cutoff}
+                'metadata.channel_id': channel_id,
+                'timestamp': {'$gte': cache_cutoff}
             }
 
-            cursor = self.db.videos.find(query).sort('published_at', -1)
+            cursor = self.db.videos.find(query).sort('timestamp', -1)
 
             if max_results:
                 cursor = cursor.limit(max_results)
@@ -200,26 +249,26 @@ class MongoDBCache:
             return False
 
         try:
-            cached_at = datetime.utcnow()
+            timestamp = datetime.utcnow()
 
             for video in videos:
                 video_id = video.get('video_id')
                 if not video_id:
                     continue
 
+                # Time-series document structure
                 doc = {
-                    'video_id': video_id,
-                    'channel_id': channel_id,
-                    'published_at': video.get('published_at', ''),
-                    'data': video,
-                    'cached_at': cached_at
+                    'timestamp': timestamp,  # Required timeField
+                    'metadata': {  # Required metaField
+                        'video_id': video_id,
+                        'channel_id': channel_id,
+                        'published_at': video.get('published_at', '')
+                    },
+                    'data': video
                 }
 
-                self.db.videos.replace_one(
-                    {'video_id': video_id},
-                    doc,
-                    upsert=True
-                )
+                # For time-series, we insert
+                self.db.videos.insert_one(doc)
 
             print(f"💾 Cached {len(videos)} videos for channel {channel_id}")
             return True
@@ -245,7 +294,11 @@ class MongoDBCache:
 
         try:
             # Transcripts don't expire (they rarely change)
-            result = self.db.transcripts.find_one({'video_id': video_id})
+            # Get the most recent transcript for this video
+            result = self.db.transcripts.find_one(
+                {'metadata.video_id': video_id},
+                sort=[('timestamp', -1)]
+            )
 
             if result:
                 print(f"✅ Cache hit: Transcript for {video_id}")
@@ -273,18 +326,18 @@ class MongoDBCache:
             return False
 
         try:
+            # Time-series document structure
             doc = {
-                'video_id': video_id,
-                'video_title': video_title,
-                'data': transcript_data,
-                'cached_at': datetime.utcnow()
+                'timestamp': datetime.utcnow(),  # Required timeField
+                'metadata': {  # Required metaField
+                    'video_id': video_id,
+                    'video_title': video_title
+                },
+                'data': transcript_data
             }
 
-            self.db.transcripts.replace_one(
-                {'video_id': video_id},
-                doc,
-                upsert=True
-            )
+            # For time-series, we insert
+            self.db.transcripts.insert_one(doc)
 
             print(f"💾 Cached transcript: {video_title}")
             return True
@@ -329,10 +382,12 @@ class MongoDBCache:
         try:
             cutoff = datetime.utcnow() - timedelta(days=days)
 
-            channels_deleted = self.db.channels.delete_many({'cached_at': {'$lt': cutoff}})
-            videos_deleted = self.db.videos.delete_many({'cached_at': {'$lt': cutoff}})
+            # For time-series collections, use timestamp field
+            channels_deleted = self.db.channels.delete_many({'timestamp': {'$lt': cutoff}})
+            videos_deleted = self.db.videos.delete_many({'timestamp': {'$lt': cutoff}})
+            transcripts_deleted = self.db.transcripts.delete_many({'timestamp': {'$lt': cutoff}})
 
-            print(f"🧹 Cleared old cache: {channels_deleted.deleted_count} channels, {videos_deleted.deleted_count} videos")
+            print(f"🧹 Cleared old cache: {channels_deleted.deleted_count} channels, {videos_deleted.deleted_count} videos, {transcripts_deleted.deleted_count} transcripts")
 
         except Exception as e:
             print(f"Error clearing cache: {str(e)}")

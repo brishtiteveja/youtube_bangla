@@ -1,42 +1,54 @@
-# Tests Directory
+# Tests
 
-This directory contains test scripts for the YouTube Transcript Collector.
-
-## Test Files
-
-### test_transcript.py
-
-Tests the transcript fetching functionality.
-
-**Usage:**
-```bash
-python tests/test_transcript.py
-```
-
-**Note:** If you encounter IP blocking errors from YouTube, wait a few minutes between test runs. YouTube rate-limits transcript requests to prevent abuse.
+MongoDB cache tests for the YouTube Transcript Collector.
 
 ## Running Tests
 
-From the project root:
 ```bash
-# Run transcript tests
-python tests/test_transcript.py
+# Run all MongoDB tests
+python tests/test_mongodb.py
+
+# Or from project root
+cd tests && python test_mongodb.py
 ```
 
-## Test Coverage
+## What Gets Tested
 
-- ✅ TranscriptFetcher with multiple languages
-- ✅ TranscriptProcessor formatting (timestamped and plain)
-- ✅ Error handling for missing transcripts
-- ✅ Language fallback mechanism
+1. **Channel Caching**
+   - Write channel data to MongoDB
+   - Read channel data from cache
+   - Verify data integrity
 
-## Adding New Tests
+2. **Videos Caching**
+   - Write multiple videos to MongoDB
+   - Read videos from cache
+   - Verify correct number of videos
 
-1. Create a new test file in this directory
-2. Import modules from `src/` using:
-   ```python
-   import sys
-   import os
-   sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
-   ```
-3. Document your test in this README
+3. **Transcript Caching**
+   - Write transcript data to MongoDB
+   - Read transcript from cache
+   - Verify transcript structure
+
+4. **Cache Statistics**
+   - Get cache statistics
+   - Verify counts are accurate
+
+5. **Time-Series Structure**
+   - Verify documents have timestamp field
+   - Verify documents have metadata field
+   - Verify documents have data field
+
+## Auto-Fix
+
+The test will automatically check if MongoDB is set up correctly:
+- If collections don't exist → Creates them
+- If collections aren't time-series → Recreates them
+- If indexes are missing → Creates them
+
+## Test Data
+
+Test data is automatically cleaned up after tests complete.
+
+Test data uses these identifiers:
+- Channel ID: TEST_CHANNEL_123
+- Video IDs: TEST_VIDEO_1, TEST_VIDEO_2
