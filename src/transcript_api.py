@@ -216,15 +216,27 @@ class TranscriptFormatter:
 class TranscriptProcessor:
     """High-level transcript processing operations"""
 
-    def __init__(self, use_proxy: bool = None):
+    def __init__(self, use_proxy: bool = None, use_cache: bool = True):
         """
         Initialize TranscriptProcessor
 
         Args:
             use_proxy: Override proxy usage (defaults to Config.USE_PROXY)
+            use_cache: Whether to use MongoDB cache
         """
         self.fetcher = TranscriptFetcher(use_proxy=use_proxy)
         self.formatter = TranscriptFormatter()
+        self.use_cache = use_cache
+
+        # Initialize cache
+        self.cache = None
+        if self.use_cache:
+            try:
+                from mongodb_cache import MongoDBCache
+                self.cache = MongoDBCache()
+            except Exception as e:
+                print(f"Warning: Could not initialize transcript cache: {str(e)}")
+                self.cache = None
 
     def get_and_format(
         self,
@@ -245,6 +257,25 @@ class TranscriptProcessor:
         Returns:
             Dictionary with formatted transcript and metadata
         """
+        # Check cache first
+        if self.cache:
+            cached = self.cache.get_transcript(video_id)
+            if cached:
+                # Reformat if needed
+                transcript_data = cached['json_data']
+                if format_type == 'timestamped':
+                    formatted_text = self.formatter.format_timestamped(transcript_data['transcript'])
+                else:
+                    formatted_text = self.formatter.format_plain_text(transcript_data['transcript'])
+
+                return {
+                    'success': True,
+                    'formatted_text': formatted_text,
+                    'json_data': transcript_data,
+                    'metadata': cached['metadata']
+                }
+
+        # Fetch from API
         result = self.fetcher.get_transcript(video_id, languages)
 
         if not result['success']:
@@ -256,7 +287,7 @@ class TranscriptProcessor:
         else:
             formatted_text = self.formatter.format_plain_text(result['transcript'])
 
-        return {
+        response = {
             'success': True,
             'formatted_text': formatted_text,
             'json_data': self.formatter.to_json_dict(video_id, video_title, result),
@@ -266,3 +297,9 @@ class TranscriptProcessor:
                 'entry_count': len(result['transcript'])
             }
         }
+
+        # Save to cache
+        if self.cache:
+            self.cache.save_transcript(video_id, video_title, response)
+
+        return response

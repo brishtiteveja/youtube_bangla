@@ -73,15 +73,18 @@ db = get_channel_database()
 def load_channel(channel_name: str):
     """Load a channel by name"""
     with st.spinner(f"Loading {channel_name}..."):
-        result = channel_manager.search_and_select(channel_name, auto_select=True)
-        if result:
-            st.session_state.channel_data = result
-            st.session_state.videos = []
-            st.session_state.transcripts = {}
-            st.success(f"✅ Loaded {channel_name}!")
-            st.rerun()
-        else:
-            st.error("Channel not found")
+        try:
+            result = channel_manager.search_and_select(channel_name, auto_select=True)
+            if result:
+                st.session_state.channel_data = result
+                st.session_state.videos = []
+                st.session_state.transcripts = {}
+                st.success(f"✅ Loaded {channel_name}!")
+                st.rerun()
+            else:
+                st.error(f"❌ Channel '{channel_name}' not found. Please check the spelling or try searching for it.")
+        except Exception as e:
+            st.error(f"❌ Error loading channel: {str(e)}")
 
 
 # App UI

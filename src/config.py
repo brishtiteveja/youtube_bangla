@@ -17,6 +17,11 @@ class Config:
     YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
+    # MongoDB Cache Configuration
+    USE_MONGODB_CACHE = os.getenv('USE_MONGODB_CACHE', 'false').lower() == 'true'
+    MONGODB_URI = os.getenv('MONGODB_URI', '')
+    MONGODB_DATABASE = os.getenv('MONGODB_DATABASE', 'youtube_bangla')
+
     # Default Settings
     DEFAULT_CHANNEL = "Pinaki Bhattacharya"
     DEFAULT_VIDEO_COUNT = 50
